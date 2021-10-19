@@ -241,7 +241,7 @@ contract ScrapMaster is Ownable {
     }
 
     // Update dev address by the previous dev.
-    function setFeeAddress(address _feeAddress) public {
+    function setFeeAddress(address _feeAddress) external onlyOwner {
         require(_feeAddress != address(0), "setFeeAddress: ZERO");
         feeAddress = _feeAddress;
     }
