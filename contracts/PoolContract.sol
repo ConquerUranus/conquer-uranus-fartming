@@ -256,7 +256,7 @@ contract PoolContract is Ownable {
         shitiumPerBlock = _shitiumPerBlock;
     }
 
-    function setFeeAddress(address _feeAddress) public onlyOwner {
+    function setFeeAddress(address _feeAddress) external onlyOwner {
         require(_feeAddress != address(0), "setFeeAddress: ZERO");
         feeAddress = _feeAddress;
     }
