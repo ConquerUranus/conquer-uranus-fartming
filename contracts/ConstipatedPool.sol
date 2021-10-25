@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./token/ShitiumToken.sol";
 
-contract ConstipatedPool is Ownable {
+contract ConstipatedPool is Ownable, ReentrancyGuard {
 
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
@@ -38,6 +38,7 @@ contract ConstipatedPool is Ownable {
 
     PoolInfo[] public poolInfo;
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
+    mapping(address => bool) public addedPool;
     uint256 public totalAllocPoint = 0;
     uint256 public startBlock;
     uint256 public totalLockedUpRewards;
@@ -80,7 +81,7 @@ contract ConstipatedPool is Ownable {
     }
 
     function add(uint256 _allocPoint, IERC20 _token, uint256 _lockupDuration, uint16 _depositFee) public onlyOwner {
-        checkPoolDuplicate(_token);
+        require(addedPool[address(_token)] == false, "Error: Duplicate pool");
         massUpdatePools();
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
@@ -95,6 +96,7 @@ contract ConstipatedPool is Ownable {
                 depositFee: _depositFee
             })
         );
+        addedPool[address(_token)] == true;
     }
 
     function setAllocPoint(uint256 _pid, uint256 _allocPoint) external onlyOwner {
@@ -152,7 +154,7 @@ contract ConstipatedPool is Ownable {
         pool.lastRewardBlock = block.number;
     }
 
-    function deposit(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA {
+    function deposit(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
@@ -163,12 +165,12 @@ contract ConstipatedPool is Ownable {
             uint256 pending = user.amount.mul(pool.accShitiumPerShare).div(1e12).sub(user.rewardDebt);
 
             if (pending > 0) {
-                user.pendingRewards = user.pendingRewards.add(pending);
-
                 if (_withdrawRewards && (block.timestamp > (user.lastClaim + pool.lockupDuration))) {
+                    user.pendingRewards = user.pendingRewards.add(pending);
                     safeTokenTransfer(msg.sender, user.pendingRewards);
                     emit Claim(msg.sender, _pid, user.pendingRewards);
                     user.pendingRewards = 0;
+                    user.lastClaim = block.timestamp;
                 }
             }
         }
@@ -185,19 +187,19 @@ contract ConstipatedPool is Ownable {
         emit Deposit(msg.sender, _pid, _amount);
     }
 
-    function withdraw(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA {
+    function withdraw(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
         uint256 pending = user.amount.mul(pool.accShitiumPerShare).div(1e12).sub(user.rewardDebt);
         if (pending > 0) {
-            user.pendingRewards = user.pendingRewards.add(pending);
-
             if (_withdrawRewards && (block.timestamp > (user.lastClaim + pool.lockupDuration))) {
+                user.pendingRewards = user.pendingRewards.add(pending);
                 safeTokenTransfer(msg.sender, user.pendingRewards);
                 emit Claim(msg.sender, _pid, user.pendingRewards);
                 user.pendingRewards = 0;
+                user.lastClaim = block.timestamp;
             }
         }
         if (_amount > 0) {
@@ -208,7 +210,7 @@ contract ConstipatedPool is Ownable {
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
-    function emergencyWithdraw(uint256 _pid) public {
+    function emergencyWithdraw(uint256 _pid) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         pool.token.safeTransfer(address(msg.sender), user.amount);
@@ -218,7 +220,7 @@ contract ConstipatedPool is Ownable {
         user.pendingRewards = 0;
     }
 
-    function claim(uint256 _pid) public onlyEOA {
+    function claim(uint256 _pid) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(block.timestamp > user.lastClaim + pool.lockupDuration, "You cannot claim yet!");

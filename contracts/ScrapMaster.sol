@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./token/ShitiumToken.sol";
 
-contract ScrapMaster is Ownable {
+contract ScrapMaster is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
     using SafeERC20 for IERC20;
     
@@ -31,6 +31,7 @@ contract ScrapMaster is Ownable {
     uint256 public shitiumPerBlock;
 
     PoolInfo[] public poolInfo;
+    mapping(address => bool) public addedPool;
     mapping(uint256 => mapping(address => UserInfo)) public userInfo;
     uint256 public totalAllocPoint = 0;
     uint256 public startBlock;
@@ -74,6 +75,7 @@ contract ScrapMaster is Ownable {
     }
 
     function add(uint256 _allocPoint, IERC20 _lpToken, uint16 _depositFee) public onlyOwner {
+        require(addedPool[address(_lpToken)] == false, "Error: Duplicate pool");
         massUpdatePools();
         uint256 lastRewardBlock = block.number > startBlock ? block.number : startBlock;
         totalAllocPoint = totalAllocPoint.add(_allocPoint);
@@ -86,6 +88,7 @@ contract ScrapMaster is Ownable {
                 depositFee: _depositFee
             })
         );
+        addedPool[address(_lpToken)] == true;
     }
 
     function setAllocPoint(uint256 _pid, uint256 _allocPoint) external onlyOwner {
@@ -141,17 +144,15 @@ contract ScrapMaster is Ownable {
         pool.lastRewardBlock = block.number;
     }
 
-    function deposit(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA {
+    function deposit(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
         if (user.amount > 0) {
             uint256 pending = user.amount.mul(pool.accShitiumPerShare).div(1e12).sub(user.rewardDebt);
-
             if (pending > 0) {
-                user.pendingRewards = user.pendingRewards.add(pending);
-
                 if (_withdrawRewards) {
+                    user.pendingRewards = user.pendingRewards.add(pending);
                     safeTokenTransfer(msg.sender, user.pendingRewards);
                     emit Claim(msg.sender, _pid, user.pendingRewards);
                     user.pendingRewards = 0;
@@ -171,16 +172,15 @@ contract ScrapMaster is Ownable {
         emit Deposit(msg.sender, _pid, _amount);
     }
 
-    function withdraw(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA {
+    function withdraw(uint256 _pid, uint256 _amount, bool _withdrawRewards) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
         updatePool(_pid);
         uint256 pending = user.amount.mul(pool.accShitiumPerShare).div(1e12).sub(user.rewardDebt);
         if (pending > 0) {
-            user.pendingRewards = user.pendingRewards.add(pending);
-
             if (_withdrawRewards) {
+                user.pendingRewards = user.pendingRewards.add(pending);
                 safeTokenTransfer(msg.sender, user.pendingRewards);
                 emit Claim(msg.sender, _pid, user.pendingRewards);
                 user.pendingRewards = 0;
@@ -194,7 +194,7 @@ contract ScrapMaster is Ownable {
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
-    function emergencyWithdraw(uint256 _pid) public {
+    function emergencyWithdraw(uint256 _pid) public nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         pool.lpToken.safeTransfer(address(msg.sender), user.amount);
@@ -204,7 +204,7 @@ contract ScrapMaster is Ownable {
         user.pendingRewards = 0;
     }
 
-    function claim(uint256 _pid) public onlyEOA {
+    function claim(uint256 _pid) public onlyEOA nonReentrant {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         updatePool(_pid);
@@ -227,13 +227,6 @@ contract ScrapMaster is Ownable {
         }
     }
 
-    function checkPoolDuplicate(IERC20 _token) public view {
-        uint256 length = poolInfo.length;
-        for (uint256 pid = 0; pid < length; ++pid) {
-            require(poolInfo[pid].lpToken != _token, "add: existing pool?");
-        }
-    }
-
     function setShitiumPerBlock(uint256 _shitiumPerBlock) external onlyOwner {
         require(_shitiumPerBlock > 0,"Token per block must be greather than zero");
         massUpdatePools();
@@ -245,5 +238,4 @@ contract ScrapMaster is Ownable {
         require(_feeAddress != address(0), "setFeeAddress: ZERO");
         feeAddress = _feeAddress;
     }
-
 }
