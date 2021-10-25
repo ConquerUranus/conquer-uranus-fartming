@@ -386,4 +386,11 @@ contract LatrinePool is Ownable, ReentrancyGuard {
     function rewardPerBlockUI() public view returns (uint256) {
         return rewardPerBlock.div(10 ** uint256(rewardDecimals));
     }
+
+    function withdrawRemainingFunds(address _to) public onlyOwner {
+        require(block.number > bonusEndBlock, "Pool not finished yet!!");
+        uint256 tokenBal = rewardToken.balanceOf(address(this));
+        require(tokenBal > 0, "Not funds to withdraw!!");
+        IERC20(rewardToken).safeTransfer(_to, tokenBal);
+    }
 }
